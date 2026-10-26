@@ -1,15 +1,16 @@
 {
   "name": "karnal-reality-whatsapp-cloud-gateway",
-  "version": "1.0.0",
-  "description": "24/7 Cloud WhatsApp AI Gateway on Render.com",
+  "version": "2.0.0",
+  "description": "24/7 Cloud WhatsApp AI Gateway on Render.com (Ultra-Fast Baileys Engine)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.12",
     "express": "^4.19.2",
-    "qrcode": "^1.5.3",
-    "whatsapp-web.js": "^1.26.0"
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.3"
   },
   "engines": {
     "node": ">=18.0.0"
