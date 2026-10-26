@@ -203,8 +203,11 @@ async function initializeDevice(slotId, force = false) {
                 '--disable-blink-features=AutomationControlled',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 '--window-size=1280,720',
-                '--js-flags=--max-old-space-size=256',
-                '--disable-features=Translate,BackForwardCache,AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync',
+                '--renderer-process-limit=1',
+                '--disable-features=site-per-process,Translate,BackForwardCache,AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync',
+                '--js-flags=--max-old-space-size=180',
+                '--aggressive-cache-discard',
+                '--disable-application-cache',
                 '--disable-ipc-flooding-protection',
                 '--disable-renderer-backgrounding',
                 '--force-color-profile=srgb'
