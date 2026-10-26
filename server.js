@@ -221,6 +221,17 @@ app.post('/api/device/:id/connect', async (req, res) => {
     }
 });
 
+// Clean Reset / Force Restart Specific Device Slot
+app.post('/api/device/:id/reset', async (req, res) => {
+    const slotId = parseInt(req.params.id);
+    try {
+        const result = await initializeDevice(slotId, true);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Disconnect Specific Device Slot
 app.post('/api/device/:id/disconnect', async (req, res) => {
     const slotId = parseInt(req.params.id);
@@ -417,6 +428,26 @@ app.post('/api/campaign/pause', (req, res) => {
     campaignState.nextEtaSeconds = 0;
     if (campaignTimeoutHandle) clearTimeout(campaignTimeoutHandle);
     res.json({ success: true, message: 'Campaign paused successfully.' });
+});
+
+// Campaign live status query
+app.get('/api/campaign/status', (req, res) => {
+    const onlineDevs = devices.filter(d => d.status === 'READY');
+    const db = getLeadsDb();
+    const pendingCount = (db.leads || []).filter(l => l.outreach_status === 'NEW').length;
+    const sentCount = (db.leads || []).filter(l => l.outreach_status === 'SENT').length;
+    const notOnWaCount = (db.leads || []).filter(l => l.outreach_status === 'NOT_ON_WHATSAPP').length;
+
+    res.json({
+        isActive: isCampaignActive,
+        config: campaignConfig,
+        state: campaignState,
+        onlineDevices: onlineDevs.length,
+        pendingLeads: pendingCount,
+        sentLeads: sentCount,
+        notOnWaLeads: notOnWaCount,
+        currentIST: getISTTimeString()
+    });
 });
 
 // Calculate the optimal next human delay based on remaining time and remaining quota
@@ -646,11 +677,13 @@ app.listen(PORT, () => {
     console.log(`======================================================================\n`);
 
     // Auto-reconnect saved sessions (e.g. Device #1)
-    autoBootSavedDevices();
+    const booted = autoBootSavedDevices();
 
     // Instant Boot: Pre-warm Device #1 on boot so QR is ALREADY generated on startup (Blink Fast!)
-    console.log('[INSTANT BOOT] Pre-warming Device #1 on boot so QR code generates in advance with ZERO wait time...');
-    initializeDevice(1).catch(err => console.error('[PRE-WARM NOTICE]', err.message));
+    if (!booted || !booted.includes(1)) {
+        console.log('[INSTANT BOOT] Pre-warming Device #1 on boot so QR code generates in advance with ZERO wait time...');
+        initializeDevice(1).catch(err => console.error('[PRE-WARM NOTICE]', err.message));
+    }
 
     // Auto-start 24/7 background free scraper loop (runs every 20 mins)
     start247ScraperLoop(20);
