@@ -30,13 +30,23 @@ const {
     setOnDeviceReadyHook
 } = require('./device_manager');
 
+// Top-level crash guards to ensure the process NEVER exits unexpectedly
+process.on('uncaughtException', (err) => {
+    console.error('[UNCAUGHT EXCEPTION SAFEGUARD]', err && err.stack ? err.stack : err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[UNHANDLED REJECTION SAFEGUARD]', reason);
+});
+
 // Zero-Touch Autopilot Hook: Auto-launches outreach campaign the moment QR is scanned
 setOnDeviceReadyHook((device) => {
-    console.log(`\n[ZERO-TOUCH AUTOPILOT] Device #${device.id} is ONLINE (+${device.phone})! Auto-launching 24/7 campaign without requiring any user clicks...`);
-    if (!isCampaignActive) {
-        isCampaignActive = true;
-        runCampaignLoop(50);
-    }
+    console.log(`\n[ZERO-TOUCH AUTOPILOT] Device #${device.id} is ONLINE (+${device.phone})! Stabilizing session 5s before first dispatch...`);
+    setTimeout(() => {
+        if (!isCampaignActive) {
+            isCampaignActive = true;
+            runCampaignLoop(50).catch(err => console.error('[AUTOPILOT RUN ERROR]', err.message));
+        }
+    }, 5000);
 });
 
 const {
