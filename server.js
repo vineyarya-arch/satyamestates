@@ -12,6 +12,11 @@
 // • Self-Contained Local DB Storage (Zero Supabase Dependency)
 // ==============================================================================
 
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
