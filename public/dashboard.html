@@ -444,7 +444,7 @@
             });
         }
 
-        async function openQrModal(slotId) {
+        async function openQrModal(slotId, force = false) {
             activeQrSlot = slotId;
             document.getElementById('modalDeviceTitle').innerText = `Device #${slotId} - Link WhatsApp`;
             document.getElementById('qrModal').style.display = 'flex';
@@ -454,8 +454,12 @@
             if (qrPollTimer) clearInterval(qrPollTimer);
             qrPollTimer = setInterval(pollQrCode, 600);
 
-            // Trigger connect in background asynchronously (Zero blocking)
-            fetch(`/api/device/${slotId}/connect`, { method: 'POST' }).catch(() => {});
+            // Only trigger connect if needed (prevents duplicate Chromium processes)
+            const currentDev = (allDevices || []).find(d => d.id === slotId);
+            if (force || !currentDev || currentDev.status === 'STANDBY' || currentDev.status === 'ERROR') {
+                const endpoint = force ? `/api/device/${slotId}/reset` : `/api/device/${slotId}/connect`;
+                fetch(endpoint, { method: 'POST' }).catch(() => {});
+            }
         }
 
         function closeQrModal() {
@@ -475,16 +479,16 @@
 
                 if (data.status === 'READY') {
                     currentRenderedQr = '';
-                    box.innerHTML = `<div style="padding:40px; color:#00a884; font-weight:800; font-size:22px;">✅ Connected Successfully!<br><span style="font-size:14px; color:#8696a0;">+${data.phone} is active</span></div>`;
+                    box.innerHTML = `<div style="padding:40px; color:#00a884; font-weight:800; font-size:22px;">✅ Connected Successfully!<br><span style="font-size:14px; color:#8696a0;">+${data.phone} is active & running 24/7</span></div>`;
                     setTimeout(closeQrModal, 1500);
-                } else if (data.status === 'ERROR') {
-                    currentRenderedQr = '';
-                    box.innerHTML = `<div style="padding:24px; color:#f15c6d; font-weight:600; font-size:13px;">⚠️ Error starting Chromium:<br><span style="color:#8696a0; font-size:12px;">${data.lastError || 'Initialization failed'}</span><br><br><button class="btn btn-secondary btn-sm" onclick="openQrModal(${activeQrSlot})">🔄 Retry Connection</button></div>`;
                 } else if (data.qrDataUrl) {
                     if (currentRenderedQr !== data.qrDataUrl) {
                         currentRenderedQr = data.qrDataUrl;
                         box.innerHTML = `<img src="${data.qrDataUrl}" alt="WhatsApp QR" style="width:240px; height:240px; display:block; margin:0 auto; border-radius:8px;" />`;
                     }
+                } else if (data.status === 'ERROR') {
+                    currentRenderedQr = '';
+                    box.innerHTML = `<div style="padding:24px; color:#f15c6d; font-weight:600; font-size:13px;">⚠️ Connection Notice:<br><span style="color:#8696a0; font-size:12px;">${data.lastError || 'Initialization failed'}</span><br><br><button class="btn btn-primary btn-sm" onclick="openQrModal(${activeQrSlot}, true)">🔄 Clean Reconnect</button></div>`;
                 } else {
                     currentRenderedQr = '';
                     box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">Starting Chromium instance...<br>Generating WhatsApp Web QR...</div>`;
