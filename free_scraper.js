@@ -11,9 +11,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns');
+
+// Force IPv4 first to prevent Node.js 10-second ConnectTimeoutError on IPv6
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'database', 'karnal_leads_db.json');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
+const ZYTE_API_KEY = process.env.ZYTE_API_KEY || "6cd18d60cc9e49fabfc1f80df3a918f4";
 
 // Blacklisted & Admin numbers
 const EXCLUDED_NUMBERS = [
@@ -78,7 +85,7 @@ function saveDatabase(db) {
     }
 }
 
-// Fetch helper with rotating headers & timeout
+// Fetch helper with rotating headers & timeout (clean headers without bot triggers)
 async function fetchWithRetry(url, timeoutMs = 12000) {
     const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
     const controller = new AbortController();
@@ -88,10 +95,10 @@ async function fetchWithRetry(url, timeoutMs = 12000) {
         const res = await fetch(url, {
             headers: {
                 'User-Agent': userAgent,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
                 'Cache-Control': 'no-cache',
-                'Referer': 'https://duckduckgo.com/'
+                'Upgrade-Insecure-Requests': '1'
             },
             signal: controller.signal
         });
@@ -104,14 +111,46 @@ async function fetchWithRetry(url, timeoutMs = 12000) {
     }
 }
 
-// Extract Leads from HTML Content
+// Zyte Cloud Proxy Fallback for reliable extraction
+async function fetchViaZyte(url, timeoutMs = 15000) {
+    if (!ZYTE_API_KEY) throw new Error("No Zyte API Key configured");
+    const auth = Buffer.from(ZYTE_API_KEY + ':').toString('base64');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const res = await fetch('https://api.zyte.com/v1/extract', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ url: url, httpResponseBody: true }),
+            signal: controller.signal
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`Zyte HTTP ${res.status}`);
+        const data = await res.json();
+        return Buffer.from(data.httpResponseBody, 'base64').toString('utf8');
+    } catch (err) {
+        clearTimeout(timer);
+        throw err;
+    }
+}
+
+// Extract Leads from HTML Content with Flexible Indian Phone Number Parsing
 function extractLeadsFromHtml(html, sourcePlatform) {
     if (!html) return [];
 
     const found = [];
-    // Match Indian 10-digit mobile numbers starting with 6, 7, 8, or 9
-    const matches = html.match(/\b[6-9]\d{9}\b/g) || [];
-    const unique = [...new Set(matches)];
+    // Flexible Indian mobile regex: matches +91, 0, spaces, hyphens, and standard 10 digits
+    const rawMatches = html.match(/(?:\+?91[\s-]?)?[6-9]\d{2,4}[\s-]?\d{3,5}\b/g) || [];
+    const cleanPhones = rawMatches
+        .map(m => m.replace(/\D/g, ''))
+        .map(p => p.startsWith('91') && p.length === 12 ? p.slice(2) : p)
+        .filter(p => p.length === 10 && /^[6-9]/.test(p));
+
+    const unique = [...new Set(cleanPhones)];
 
     for (const p of unique) {
         if (EXCLUDED_NUMBERS.includes(p)) continue;
@@ -181,18 +220,32 @@ async function runFreeScrapeCycle(targetNewLeads = 10) {
         if (newLeadsAdded >= targetNewLeads) break;
 
         logActivity(`Scanning platform: ${target.name}...`, 'info');
-        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(target.query)}`;
 
         let html = '';
+        // Tier 1: Bing Direct Search (Reliable & fast with clean headers)
         try {
-            html = await fetchWithRetry(searchUrl);
-        } catch (fetchErr) {
-            logActivity(`Direct fetch failed for ${target.name}: ${fetchErr.message}. Trying Bing fallback...`, 'warning');
+            const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(target.query)}`;
+            html = await fetchWithRetry(bingUrl);
+        } catch (bErr) {
+            // Tier 2: DuckDuckGo Lite (No JavaScript requirement)
             try {
-                const bingUrl = `https://www.bing.com/search?q=${encodeURIComponent(target.query)}`;
-                html = await fetchWithRetry(bingUrl);
-            } catch (bingErr) {
-                logActivity(`Free search throttled for ${target.name}`, 'warning');
+                const ddgUrl = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(target.query)}`;
+                html = await fetchWithRetry(ddgUrl);
+            } catch (dErr) {
+                // Tier 3: Bing RSS Feed (Open unblockable XML)
+                try {
+                    const rssUrl = `https://www.bing.com/search?q=${encodeURIComponent(target.query)}&format=rss`;
+                    html = await fetchWithRetry(rssUrl);
+                } catch (rErr) {
+                    // Tier 4: Zyte Cloud Proxy Fallback
+                    try {
+                        logActivity(`Free tiers throttled for ${target.name}. Routing through Zyte Cloud...`, 'info');
+                        const zyteUrl = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(target.query)}`;
+                        html = await fetchViaZyte(zyteUrl);
+                    } catch (zErr) {
+                        logActivity(`Search candidate skipped for ${target.name}: ${zErr.message}`, 'warning');
+                    }
+                }
             }
         }
 
