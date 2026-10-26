@@ -377,9 +377,10 @@
                         if (etaSec > 0) {
                             const m = Math.floor(etaSec / 60);
                             const s = etaSec % 60;
-                            etaCountdown.innerText = `Pacing next message in ~${m > 0 ? m + 'm ' : ''}${s}s`;
+                            const target = data.campaign.nextLeadName ? ` • Next: <b style="color:#e9edef;">${data.campaign.nextLeadName}</b> (${data.campaign.nextLeadPhone ? '+91 ' + data.campaign.nextLeadPhone : ''})` : '';
+                            etaCountdown.innerHTML = `<span style="color:var(--accent-green); font-weight:700;">⏳ Next Message in ${m > 0 ? m + 'm ' : ''}${s}s</span><span style="color:#8696a0; margin-left:8px; font-size:12px;">${target}</span>`;
                         } else {
-                            etaCountdown.innerText = `Evaluating next pending lead...`;
+                            etaCountdown.innerHTML = `<span style="color:var(--accent-green); font-weight:700;">🚀 Sending message now...</span>`;
                         }
                     } else {
                         etaCountdown.innerText = `Idle (Campaign Paused)`;
