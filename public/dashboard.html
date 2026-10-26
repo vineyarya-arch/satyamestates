@@ -491,7 +491,7 @@
                     box.innerHTML = `<div style="padding:24px; color:#f15c6d; font-weight:600; font-size:13px;">⚠️ Connection Notice:<br><span style="color:#8696a0; font-size:12px;">${data.lastError || 'Initialization failed'}</span><br><br><button class="btn btn-primary btn-sm" onclick="openQrModal(${activeQrSlot}, true)">🔄 Clean Reconnect</button></div>`;
                 } else {
                     currentRenderedQr = '';
-                    box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">Starting Chromium instance...<br>Generating WhatsApp Web QR...</div>`;
+                    box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">⚡ Generating Instant WhatsApp QR...<br><span style="font-size:12px; color:#8696a0;">Ultra-Lean Baileys Engine (~35MB RAM)</span></div>`;
                 }
             } catch (e) {}
         }
