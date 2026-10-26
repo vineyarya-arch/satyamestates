@@ -153,9 +153,7 @@ function generateSpintax(salutation, loc, req, category) {
     ];
     const close = closings[Math.floor(Math.random() * closings.length)];
 
-    // Unique reference hash for Meta anti-spam hash defense
-    const refCode = `KR-${Math.floor(1000 + Math.random() * 9000)}`;
-    const menu = `\n\n------------------------\n[1] 📞 Direct Call (+91 9355312345)\n[2] 🌐 View Verified Inventory (karnalproperty.com)\n[Reply '1' ya '2' • Agar requirement close ho gayi hai toh 'STOP' likh dein]\n*Ref:* ${refCode}`;
+    const menu = `\n\n------------------------\n[1] 📞 Direct Call (+91 9355312345)\n[2] 🌐 View Verified Inventory (karnalproperty.com)\n[Reply '1' ya '2' • Agar requirement close ho gayi hai toh 'STOP' likh dein]`;
 
     return `${greet}\n\n${body}\n\n${close}${menu}`;
 }
@@ -198,7 +196,11 @@ app.get('/api/status', (req, res) => {
         campaign: {
             isActive: isCampaignActive,
             pacingMode: campaignConfig.mode,
-            nextMessageEtaSeconds: campaignState.nextEtaSeconds,
+            nextMessageEtaSeconds: campaignState.nextDispatchTimestamp && isCampaignActive
+                ? Math.max(0, Math.round((campaignState.nextDispatchTimestamp - Date.now()) / 1000))
+                : 0,
+            nextLeadName: campaignState.nextLeadName || '',
+            nextLeadPhone: campaignState.nextLeadPhone || '',
             isNightMode: isNightMode,
             istTime: getISTTimeString()
         },
@@ -403,6 +405,9 @@ const campaignConfig = {
 
 const campaignState = {
     nextEtaSeconds: 0,
+    nextDispatchTimestamp: 0,
+    nextLeadName: '',
+    nextLeadPhone: '',
     burstCount: 0
 };
 
@@ -448,10 +453,17 @@ app.get('/api/campaign/status', (req, res) => {
     const sentCount = (db.leads || []).filter(l => l.outreach_status === 'SENT').length;
     const notOnWaCount = (db.leads || []).filter(l => l.outreach_status === 'NOT_ON_WHATSAPP').length;
 
+    const remainingSeconds = campaignState.nextDispatchTimestamp && isCampaignActive
+        ? Math.max(0, Math.round((campaignState.nextDispatchTimestamp - Date.now()) / 1000))
+        : 0;
+
     res.json({
         isActive: isCampaignActive,
         config: campaignConfig,
-        state: campaignState,
+        state: {
+            ...campaignState,
+            nextEtaSeconds: remainingSeconds
+        },
         onlineDevices: onlineDevs.length,
         pendingLeads: pendingCount,
         sentLeads: sentCount,
@@ -627,16 +639,29 @@ async function runCampaignLoop(targetCount) {
             const remainingToTarget = targetCount - sentInRun;
             const delaySec = calculateHumanPacingDelay(remainingToTarget);
             campaignState.nextEtaSeconds = delaySec;
+            campaignState.nextDispatchTimestamp = Date.now() + (delaySec * 1000);
+
+            // Fetch next upcoming lead for live dashboard preview
+            const currentDb = getLeadsDb();
+            const nextPending = (currentDb.leads || []).filter(l => l.outreach_status === 'NEW');
+            if (nextPending.length > 0) {
+                campaignState.nextLeadName = nextPending[0].client_name;
+                campaignState.nextLeadPhone = nextPending[0].phone_number;
+            } else {
+                campaignState.nextLeadName = 'Scraper fetching new leads...';
+                campaignState.nextLeadPhone = '';
+            }
 
             const mins = Math.floor(delaySec / 60);
             const secs = delaySec % 60;
             const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-            console.log(`[HUMAN PACER] Undetectable cadence: Waiting ${timeStr} before next message (Target left: ${remainingToTarget})...`);
+            console.log(`[HUMAN PACER] Undetectable cadence: Waiting ${timeStr} before next message (Target left: ${remainingToTarget}) | Next: ${campaignState.nextLeadName} (+91 ${campaignState.nextLeadPhone})...`);
 
             await new Promise(resolve => {
                 campaignTimeoutHandle = setTimeout(resolve, delaySec * 1000);
             });
             campaignState.nextEtaSeconds = 0;
+            campaignState.nextDispatchTimestamp = 0;
         }
     }
 
