@@ -26,8 +26,18 @@ const {
     verifyNumberOnWhatsApp,
     getDevicesStatus,
     getDeviceQr,
-    autoBootSavedDevices
+    autoBootSavedDevices,
+    setOnDeviceReadyHook
 } = require('./device_manager');
+
+// Zero-Touch Autopilot Hook: Auto-launches outreach campaign the moment QR is scanned
+setOnDeviceReadyHook((device) => {
+    console.log(`\n[ZERO-TOUCH AUTOPILOT] Device #${device.id} is ONLINE (+${device.phone})! Auto-launching 24/7 campaign without requiring any user clicks...`);
+    if (!isCampaignActive) {
+        isCampaignActive = true;
+        runCampaignLoop(50);
+    }
+});
 
 const {
     runFreeScrapeCycle,
