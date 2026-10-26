@@ -298,7 +298,6 @@ async function initializeDevice(slotId, force = false) {
         device.status = 'ERROR';
         device.lastError = err.message;
     }
-    }
 
     return { message: `Device #${slotId} initialized. Please scan QR.`, device: getDeviceSummary(device) };
 }
