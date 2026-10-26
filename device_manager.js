@@ -39,6 +39,10 @@ if (!chromePath) {
     }
 }
 
+// Device Ready Callback Hook for Zero-Touch Autopilot
+let onDeviceReadyHook = null;
+function setOnDeviceReadyHook(fn) { onDeviceReadyHook = fn; }
+
 // Persistent Stats Loader
 function loadStats() {
     try {
@@ -146,9 +150,19 @@ async function initializeDevice(slotId) {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--disable-gpu',
+                '--mute-audio',
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-breakpad',
+                '--disable-component-update',
+                '--disable-domain-reliability',
+                '--disable-sync',
+                '--metrics-recording-only',
                 '--disable-blink-features=AutomationControlled',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                '--window-size=1366,768'
+                '--window-size=1280,720'
             ]
         }
     });
@@ -159,7 +173,7 @@ async function initializeDevice(slotId) {
         console.log(`[DEVICE #${slotId}] Fresh QR Code received! Generating visual code...`);
         try {
             device.status = 'QR_READY';
-            device.qrDataUrl = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
+            device.qrDataUrl = await qrcode.toDataURL(qr, { width: 240, margin: 1, errorCorrectionLevel: 'L' });
         } catch (err) {
             console.error(`[DEVICE #${slotId} QR ERROR]`, err);
         }
@@ -175,6 +189,11 @@ async function initializeDevice(slotId) {
         console.log(` Daily Quota: ${device.sentToday} / ${device.maxDaily} messages (Strict 50-limit enforced)`);
         console.log(`======================================================================\n`);
         persistAllStats();
+
+        // Zero-Touch Autopilot Trigger: Auto-launch outreach as soon as QR is scanned
+        if (typeof onDeviceReadyHook === 'function') {
+            try { onDeviceReadyHook(device); } catch (_) {}
+        }
     });
 
     client.on('authenticated', () => {
@@ -468,6 +487,7 @@ module.exports = {
     getBestAvailableDevice,
     verifyNumberOnWhatsApp,
     autoBootSavedDevices,
+    setOnDeviceReadyHook,
     getDevicesStatus: () => devices.map(getDeviceSummary),
     getDeviceQr: (slotId) => {
         const d = devices.find(x => x.id === slotId);
