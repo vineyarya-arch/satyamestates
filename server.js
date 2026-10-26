@@ -648,6 +648,10 @@ app.listen(PORT, () => {
     // Auto-reconnect saved sessions (e.g. Device #1)
     autoBootSavedDevices();
 
+    // Instant Boot: Pre-warm Device #1 on boot so QR is ALREADY generated on startup (Blink Fast!)
+    console.log('[INSTANT BOOT] Pre-warming Device #1 on boot so QR code generates in advance with ZERO wait time...');
+    initializeDevice(1).catch(err => console.error('[PRE-WARM NOTICE]', err.message));
+
     // Auto-start 24/7 background free scraper loop (runs every 20 mins)
     start247ScraperLoop(20);
 });
