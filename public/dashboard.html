@@ -474,10 +474,12 @@
                 if (data.status === 'READY') {
                     box.innerHTML = `<div style="padding:40px; color:#00a884; font-weight:800; font-size:22px;">✅ Connected Successfully!<br><span style="font-size:14px; color:#8696a0;">+${data.phone} is active</span></div>`;
                     setTimeout(closeQrModal, 1500);
+                } else if (data.status === 'ERROR') {
+                    box.innerHTML = `<div style="padding:24px; color:#f15c6d; font-weight:600; font-size:13px;">⚠️ Error starting Chromium:<br><span style="color:#8696a0; font-size:12px;">${data.lastError || 'Initialization failed'}</span><br><br><button class="btn btn-secondary btn-sm" onclick="openQrModal(${activeQrSlot})">🔄 Retry Connection</button></div>`;
                 } else if (data.qrDataUrl) {
                     box.innerHTML = `<img src="${data.qrDataUrl}" alt="WhatsApp QR" />`;
                 } else {
-                    box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">Starting Chromium instance...<br>Please wait 3-5 seconds</div>`;
+                    box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">Starting Chromium instance...<br>Generating WhatsApp Web QR...</div>`;
                 }
             } catch (e) {}
         }
