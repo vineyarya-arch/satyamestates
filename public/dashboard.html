@@ -465,6 +465,7 @@
             fetchSystemStatus();
         }
 
+        let currentRenderedQr = '';
         async function pollQrCode() {
             if (!activeQrSlot) return;
             try {
@@ -473,13 +474,19 @@
                 const box = document.getElementById('modalQrBox');
 
                 if (data.status === 'READY') {
+                    currentRenderedQr = '';
                     box.innerHTML = `<div style="padding:40px; color:#00a884; font-weight:800; font-size:22px;">✅ Connected Successfully!<br><span style="font-size:14px; color:#8696a0;">+${data.phone} is active</span></div>`;
                     setTimeout(closeQrModal, 1500);
                 } else if (data.status === 'ERROR') {
+                    currentRenderedQr = '';
                     box.innerHTML = `<div style="padding:24px; color:#f15c6d; font-weight:600; font-size:13px;">⚠️ Error starting Chromium:<br><span style="color:#8696a0; font-size:12px;">${data.lastError || 'Initialization failed'}</span><br><br><button class="btn btn-secondary btn-sm" onclick="openQrModal(${activeQrSlot})">🔄 Retry Connection</button></div>`;
                 } else if (data.qrDataUrl) {
-                    box.innerHTML = `<img src="${data.qrDataUrl}" alt="WhatsApp QR" />`;
+                    if (currentRenderedQr !== data.qrDataUrl) {
+                        currentRenderedQr = data.qrDataUrl;
+                        box.innerHTML = `<img src="${data.qrDataUrl}" alt="WhatsApp QR" style="width:240px; height:240px; display:block; margin:0 auto; border-radius:8px;" />`;
+                    }
                 } else {
+                    currentRenderedQr = '';
                     box.innerHTML = `<div style="padding:60px 20px; color:#111b21; font-weight:600;">Starting Chromium instance...<br>Generating WhatsApp Web QR...</div>`;
                 }
             } catch (e) {}
