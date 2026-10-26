@@ -449,13 +449,13 @@
             document.getElementById('modalDeviceTitle').innerText = `Device #${slotId} - Link WhatsApp`;
             document.getElementById('qrModal').style.display = 'flex';
 
-            try {
-                await fetch(`/api/device/${slotId}/connect`, { method: 'POST' });
-            } catch (_) {}
-
+            // Instant Blink QR: Render immediately without waiting for any server response
             pollQrCode();
             if (qrPollTimer) clearInterval(qrPollTimer);
-            qrPollTimer = setInterval(pollQrCode, 2000);
+            qrPollTimer = setInterval(pollQrCode, 600);
+
+            // Trigger connect in background asynchronously (Zero blocking)
+            fetch(`/api/device/${slotId}/connect`, { method: 'POST' }).catch(() => {});
         }
 
         function closeQrModal() {
