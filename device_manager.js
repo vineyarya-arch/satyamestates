@@ -11,7 +11,7 @@
 // • Independent QR Generation & Session Caching per slot
 // ==============================================================================
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +21,7 @@ const MAX_DEVICES = 9;
 const DAILY_LIMIT_PER_DEVICE = 50;
 const SESSION_DATA_PATH = path.join(__dirname, 'session_auth');
 const STATS_PATH = path.join(__dirname, 'database', 'device_stats.json');
+const LOGO_PATH = path.join(__dirname, 'assets', 'karnal_reality_logo.jpg');
 
 // Chromium executable path resolution (Docker/Render/Windows)
 let chromePath = process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -313,7 +314,7 @@ async function verifyNumberOnWhatsApp(targetPhone, preferredSlotId = null) {
 }
 
 // Send message via specific device with Human Typing Emulation & Non-WhatsApp Detection
-async function sendViaDevice(slotId, targetPhone, message) {
+async function sendViaDevice(slotId, targetPhone, message, options = {}) {
     const device = devices.find(d => d.id === slotId);
     if (!device || device.status !== 'READY') {
         throw new Error(`Device #${slotId} is not connected or ready.`);
@@ -375,8 +376,23 @@ async function sendViaDevice(slotId, targetPhone, message) {
         // Fallback if chat presence simulation encounters minor issue
     }
 
-    // 3. Dispatch Unique Message
-    const sent = await client.sendMessage(targetChatId, message);
+    // 3. Dispatch Unique Message (With Logo if available)
+    let sent;
+    const attachLogo = options.attachLogo !== false && fs.existsSync(LOGO_PATH);
+
+    if (attachLogo) {
+        try {
+            const media = MessageMedia.fromFilePath(LOGO_PATH);
+            sent = await client.sendMessage(targetChatId, media, { caption: message });
+            console.log(`[DELIVERED via D#${slotId}] Sent branded logo image with text caption to +${phone}!`);
+        } catch (mediaErr) {
+            console.log(`[MEDIA FALLBACK] Media send error (${mediaErr.message}), sending plain text...`);
+            sent = await client.sendMessage(targetChatId, message);
+        }
+    } else {
+        sent = await client.sendMessage(targetChatId, message);
+    }
+
     const msgId = (sent && sent.id) ? (sent.id._serialized || sent.id.id || 'sent') : ('msg_' + Date.now());
 
     // ONLY INCREMENT QUOTA ON VERIFIED REAL WHATSAPP DELIVERY!
@@ -400,7 +416,7 @@ async function sendViaDevice(slotId, targetPhone, message) {
 }
 
 // Send via ANY best available online device (Load-Balanced)
-async function sendViaAnyDevice(targetPhone, message) {
+async function sendViaAnyDevice(targetPhone, message, options = {}) {
     const bestDevice = getBestAvailableDevice();
     if (!bestDevice) {
         const anyReady = devices.some(d => d.status === 'READY');
@@ -411,7 +427,7 @@ async function sendViaAnyDevice(targetPhone, message) {
         }
     }
 
-    return await sendViaDevice(bestDevice.id, targetPhone, message);
+    return await sendViaDevice(bestDevice.id, targetPhone, message, options);
 }
 
 // Auto-boot: Auto-reconnect device #1 or any slot that already has cached credentials
