@@ -39,6 +39,30 @@ if (!chromePath) {
     }
 }
 
+// Clean any leftover Chromium lock files to prevent "browser is already running" errors
+function cleanChromiumLocks(slotId) {
+    try {
+        const slotDir = path.join(SESSION_DATA_PATH, `session-slot_${slotId}`);
+        if (!fs.existsSync(slotDir)) return;
+        const checkDirs = [slotDir, path.join(slotDir, 'Default')];
+        for (const dir of checkDirs) {
+            if (fs.existsSync(dir)) {
+                const entries = fs.readdirSync(dir);
+                for (const entry of entries) {
+                    if (entry.startsWith('Singleton')) {
+                        try {
+                            fs.unlinkSync(path.join(dir, entry));
+                            console.log(`[CLEAN LOCK] Removed ${entry} for Slot #${slotId}`);
+                        } catch (_) {}
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn(`[CLEAN LOCK WARN] Could not clean lock for slot ${slotId}:`, e.message);
+    }
+}
+
 // Device Ready Callback Hook for Zero-Touch Autopilot
 let onDeviceReadyHook = null;
 function setOnDeviceReadyHook(fn) { onDeviceReadyHook = fn; }
@@ -112,18 +136,32 @@ function getDeviceSummary(d) {
 }
 
 // Initialize a specific device slot
-async function initializeDevice(slotId) {
+async function initializeDevice(slotId, force = false) {
     const device = devices.find(d => d.id === slotId);
     if (!device) throw new Error(`Invalid device slot ${slotId}`);
 
-    if (device.status === 'READY') {
-        return { message: 'Device is already connected and ready', device: getDeviceSummary(device) };
+    if (!force) {
+        if (device.status === 'READY') {
+            return { message: 'Device is already connected and ready', device: getDeviceSummary(device) };
+        }
+        if (device.status === 'CONNECTING' || device.status === 'QR_READY') {
+            return { message: 'Device is already initializing or awaiting QR code scan', device: getDeviceSummary(device) };
+        }
     }
 
+    // Safely shutdown any old client
     if (device.client) {
-        try { await device.client.destroy(); } catch (_) {}
+        try {
+            if (device.client.pupBrowser) {
+                await device.client.pupBrowser.close().catch(() => {});
+            }
+        } catch (_) {}
+        try { await device.client.destroy().catch(() => {}); } catch (_) {}
         device.client = null;
     }
+
+    // Eradicate any leftover Chromium SingletonLock files to prevent browser lock crash
+    cleanChromiumLocks(slotId);
 
     device.status = 'CONNECTING';
     device.qrDataUrl = '';
@@ -131,15 +169,17 @@ async function initializeDevice(slotId) {
 
     console.log(`[DEVICE #${slotId}] Starting WhatsApp Client (Slot ${slotId})...`);
 
+    const localWaVersionPath = path.join(__dirname, 'assets', 'wa-version.html');
+    const webVersionCacheConfig = fs.existsSync(localWaVersionPath)
+        ? { type: 'local', path: localWaVersionPath }
+        : { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1051690951-alpha.html' };
+
     const client = new Client({
         authStrategy: new LocalAuth({
             clientId: `slot_${slotId}`,
             dataPath: SESSION_DATA_PATH
         }),
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1051690951-alpha.html',
-        },
+        webVersionCache: webVersionCacheConfig,
         puppeteer: {
             executablePath: chromePath,
             headless: true,
@@ -162,7 +202,12 @@ async function initializeDevice(slotId) {
                 '--metrics-recording-only',
                 '--disable-blink-features=AutomationControlled',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                '--window-size=1280,720'
+                '--window-size=1280,720',
+                '--js-flags=--max-old-space-size=256',
+                '--disable-features=Translate,BackForwardCache,AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync',
+                '--disable-ipc-flooding-protection',
+                '--disable-renderer-backgrounding',
+                '--force-color-profile=srgb'
             ]
         }
     });
@@ -173,6 +218,7 @@ async function initializeDevice(slotId) {
         console.log(`[DEVICE #${slotId}] Fresh QR Code received! Generating visual code...`);
         try {
             device.status = 'QR_READY';
+            device.lastError = null;
             device.qrDataUrl = await qrcode.toDataURL(qr, { width: 240, margin: 1, errorCorrectionLevel: 'L' });
         } catch (err) {
             console.error(`[DEVICE #${slotId} QR ERROR]`, err);
@@ -184,6 +230,7 @@ async function initializeDevice(slotId) {
         device.qrDataUrl = '';
         device.phone = client.info?.wid?.user || null;
         device.pushname = client.info?.pushname || 'Active SIM';
+        device.lastError = null;
         console.log(`\n======================================================================`);
         console.log(` [DEVICE #${slotId} READY] Connected! Phone: +${device.phone} (${device.pushname})`);
         console.log(` Daily Quota: ${device.sentToday} / ${device.maxDaily} messages (Strict 50-limit enforced)`);
@@ -198,6 +245,7 @@ async function initializeDevice(slotId) {
 
     client.on('authenticated', () => {
         console.log(`[DEVICE #${slotId}] WhatsApp Authenticated Successfully!`);
+        device.lastError = null;
     });
 
     client.on('auth_failure', (msg) => {
@@ -249,6 +297,7 @@ async function initializeDevice(slotId) {
     } catch (err) {
         device.status = 'ERROR';
         device.lastError = err.message;
+    }
     }
 
     return { message: `Device #${slotId} initialized. Please scan QR.`, device: getDeviceSummary(device) };
@@ -372,27 +421,31 @@ async function sendViaDevice(slotId, targetPhone, message, options = {}) {
     }
 
     // 2. Full Human Presence Emulation (Seen glance + Natural Typing + Realistic Pauses)
+    let chat = null;
     try {
-        const chat = await client.getChatById(targetChatId);
-        
-        // Step A: Mark as seen / open conversation (1.2s - 2.2s human glance)
-        await chat.sendSeen();
-        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 1200));
+        chat = await client.getChatById(targetChatId);
+    } catch (_) {}
 
-        // Step B: Send composing/typing presence
-        await chat.sendStateTyping();
+    if (chat) {
+        try {
+            // Step A: Mark as seen / open conversation (1.2s - 2.2s human glance)
+            await chat.sendSeen();
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 800) + 1200));
 
-        // Step C: Realistic human typing delay based on message length (~35ms per character)
-        // Bounded between 3.5s and 6.8s with natural human jitter
-        const charTypingMs = Math.min(6800, Math.max(3500, message.length * 35));
-        const jitter = Math.floor(Math.random() * 800) - 400;
-        await new Promise(r => setTimeout(r, charTypingMs + jitter));
+            // Step B: Send composing/typing presence
+            await chat.sendStateTyping();
 
-        // Step D: Micro-pause before pressing send (simulates human final check)
-        await chat.clearState();
-        await new Promise(r => setTimeout(r, 450 + Math.floor(Math.random() * 350)));
-    } catch (e) {
-        // Fallback if chat presence simulation encounters minor issue
+            // Step C: Realistic human typing delay based on message length (~35ms per character)
+            const charTypingMs = Math.min(6800, Math.max(3500, message.length * 35));
+            const jitter = Math.floor(Math.random() * 800) - 400;
+            await new Promise(r => setTimeout(r, charTypingMs + jitter));
+
+            // Step D: Micro-pause before pressing send (simulates human final check)
+            await chat.clearState();
+            await new Promise(r => setTimeout(r, 450 + Math.floor(Math.random() * 350)));
+        } catch (e) {
+            // Fallback if chat presence simulation encounters minor issue
+        }
     }
 
     // 3. Dispatch Unique Message (With Logo if available)
@@ -451,13 +504,16 @@ async function sendViaAnyDevice(targetPhone, message, options = {}) {
 
 // Auto-boot: Auto-reconnect device #1 or any slot that already has cached credentials
 function autoBootSavedDevices() {
+    const booted = [];
     for (let i = 1; i <= MAX_DEVICES; i++) {
         const slotDir = path.join(SESSION_DATA_PATH, `session-slot_${i}`);
         if (fs.existsSync(slotDir)) {
             console.log(`[AUTO-BOOT] Found existing session for Device #${i}. Reconnecting...`);
             initializeDevice(i).catch(() => {});
+            booted.push(i);
         }
     }
+    return booted;
 }
 
 // Reset daily quotas at midnight IST (18:30 UTC / 00:00 IST)
@@ -491,6 +547,6 @@ module.exports = {
     getDevicesStatus: () => devices.map(getDeviceSummary),
     getDeviceQr: (slotId) => {
         const d = devices.find(x => x.id === slotId);
-        return d ? { status: d.status, qrDataUrl: d.qrDataUrl, phone: d.phone } : null;
+        return d ? { status: d.status, qrDataUrl: d.qrDataUrl, phone: d.phone, lastError: d.lastError } : null;
     }
 };
