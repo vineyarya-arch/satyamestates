@@ -1,33 +1,34 @@
 # ==============================================================================
 # KARNAL REALITY - WHATSAPP 24/7 CLOUD GATEWAY DOCKERFILE (RENDER.COM)
 # ==============================================================================
-FROM node:20-bullseye-slim
+FROM node:20-slim
 
-# Install latest Chromium and required dependencies for Puppeteer & WhatsApp Web
+# Install latest Chromium and required dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
     chromium \
-    fonts-ipafont-gothic \
-    fonts-wqy-zenhei \
-    fonts-thai-tlwg \
-    fonts-kacst \
-    fonts-freefont-ttf \
-    libxss1 \
+    fonts-liberation \
     libnss3 \
-    libasound2 \
     libatk-bridge2.0-0 \
-    libgtk-3-0 \
-    libgbm-dev \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libatk1.0-0 \
+    libcups2 \
     curl \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Puppeteer environment variables to use the system Chromium
+# Set Puppeteer environment variables to use system Chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     NODE_ENV=production \
     PORT=3000
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
@@ -36,7 +37,7 @@ RUN npm install --omit=dev
 # Copy application source code
 COPY . .
 
-# Create directory for session cache with proper permissions
+# Permissions for persistent session cache
 RUN mkdir -p session_auth .wwebjs_cache && chmod -R 777 session_auth .wwebjs_cache
 
 EXPOSE 3000
